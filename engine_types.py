@@ -32,6 +32,12 @@ class OperatingConditions:
     Hin: Optional[float] = None  # Intake enthalpy [J/kg]
     Yex: Optional[np.ndarray] = None  # Exhaust composition [-]
     Hex: Optional[float] = None  # Exhaust enthalpy [J/kg]
+    
+    # Fuel injection parameters
+    minj: float = 0.0  # Mass of fuel injected per cylinder per cycle [mg/cycle/cyl]
+    injt: float = 0.0  # Timing of first injection [deg]
+    injdur: float = 0.0  # Injection duration [deg]
+    hvap: float = 350000.0  # Heat of vaporization [J/kg]
 
 @dataclass
 class InitialConditions:
