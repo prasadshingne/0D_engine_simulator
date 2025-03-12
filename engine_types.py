@@ -50,6 +50,8 @@ class GeometryParameters:
     a: float      # Crank radius [m]
     conr: float   # Connecting rod length [m]
     bore: float   # Cylinder bore [m]
+    Vcl: float    # Clearance volume [m³]
+    Vd: float     # Displaced volume [m³]
     x: Optional[float] = None  # Instantaneous piston position [m]
 
 @dataclass
