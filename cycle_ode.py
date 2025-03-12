@@ -6,12 +6,14 @@ from typing import Tuple, List
 from engine_types import InitialConditions, GeometryParameters, OperatingConditions
 from area1 import area1
 from heat import heat
-from fuel import mfuel
+from mfuel import mfuel
 
 def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions, 
               geom: GeometryParameters, oper: OperatingConditions) -> np.ndarray:
     """
-    ODE system for a zero-dimensional engine cycle simulation.
+    Main ODE system for a zero-dimensional engine cycle simulation.
+    This function handles both compression and expansion phases with fuel injection.
+    For intake and exhaust phases, see cycle_ode_phases.py.
     
     Parameters
     ----------
