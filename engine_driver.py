@@ -8,7 +8,8 @@ from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
 from engine_types import GeometryParameters, OperatingConditions, InitialConditions, ValveData
-from cycle_ode_phases import cycle_ode_intake, cycle_ode_exhaust, cycle_ode_new
+from cycle_ode_phases import cycle_ode_intake, cycle_ode_exhaust
+from cycle_ode import cycle_ode
 
 def setup_geometry() -> GeometryParameters:
     """Setup engine geometry parameters."""
@@ -27,12 +28,13 @@ def setup_geometry() -> GeometryParameters:
     # Derived parameters
     Vd = np.pi/4 * bore**2 * stroke  # Displaced volume [m³]
     Vcl = np.pi/4 * bore**2 * tdcl  # Clearance volume [m³]
-    Vt = Vd + Vcl  # Total cylinder volume [m³]
     
     return GeometryParameters(
         a=a,
         conr=conr,
-        bore=bore
+        bore=bore,
+        Vcl=Vcl,
+        Vd=Vd
     )
 
 def setup_valve_data() -> Tuple[ValveData, ValveData]:
@@ -61,8 +63,17 @@ def setup_valve_data() -> Tuple[ValveData, ValveData]:
         ValveData(ca=exv_ca, lift=exv_lift, refd=exv_refd, ra=exv_ra, cd=exv_cd, dur=exv_dur)
     )
 
-def setup_operating_conditions(gas: ct.Solution) -> OperatingConditions:
-    """Setup engine operating conditions."""
+def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingConditions:
+    """
+    Setup engine operating conditions.
+    
+    Parameters
+    ----------
+    gas : ct.Solution
+        Cantera Solution object
+    inv_dur : float
+        Intake valve duration [deg]
+    """
     # Basic parameters
     rpm = 2000  # Engine speed [rev/min]
     omega = 2*np.pi*rpm/60  # Crank Speed [rad/sec]
@@ -94,8 +105,15 @@ def setup_operating_conditions(gas: ct.Solution) -> OperatingConditions:
     Hex = gas.h
     
     # Other parameters
+    stroke = 0.086  # [m]
     Upbar = 2*stroke*rpm/60  # Mean piston Speed [m/s]
     twall = 353  # Wall temperature [K]
+    
+    # Fuel injection parameters
+    minj = 10.0  # Mass of fuel injected [mg/cycle/cyl]
+    injt = 250.0  # Injection timing [deg]
+    injdur = 10.0  # Injection duration [deg]
+    hvap = 350000.0  # Heat of vaporization [J/kg]
     
     return OperatingConditions(
         soc=evc,  # Start at EVC
@@ -114,7 +132,11 @@ def setup_operating_conditions(gas: ct.Solution) -> OperatingConditions:
         Yin=Yin,
         Hin=Hin,
         Yex=Yex,
-        Hex=Hex
+        Hex=Hex,
+        minj=minj,
+        injt=injt,
+        injdur=injdur,
+        hvap=hvap
     )
 
 def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
@@ -153,7 +175,7 @@ def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
     elif phase == 'exhaust':
         ode_fn = lambda t, y: cycle_ode_exhaust(t, y, gas, init, geom, oper, valve)
     else:  # compression/expansion
-        ode_fn = lambda t, y: cycle_ode_new(t, y, gas, init, geom, oper)
+        ode_fn = lambda t, y: cycle_ode(t, y, gas, init, geom, oper)
     
     # Solve ODEs
     sol = solve_ivp(
@@ -186,7 +208,7 @@ def main():
     gas = ct.Solution('nissan_chem.xml')
     
     # Setup operating conditions
-    oper = setup_operating_conditions(gas)
+    oper = setup_operating_conditions(gas, inv.dur)
     
     # Initial conditions at start of cycle (EVC)
     init = InitialConditions(theta=oper.soc * np.pi/180)
