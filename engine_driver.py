@@ -6,6 +6,9 @@ from scipy.integrate import solve_ivp
 from dataclasses import asdict
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
+from tqdm import tqdm
+import time
+import matplotlib.pyplot as plt
 
 from engine_types import GeometryParameters, OperatingConditions, InitialConditions, ValveData
 from cycle_ode_phases import cycle_ode_intake, cycle_ode_exhaust
@@ -44,7 +47,7 @@ def setup_valve_data() -> Tuple[ValveData, ValveData]:
     exv_refd = 25  # Reference diameter for exhaust valve [mm]
     
     # Read valve lift and CD data
-    data_dir = Path("valve_data")
+    data_dir = Path("input_data")
     
     # Intake valve data
     inv_ca, inv_lift = np.loadtxt(data_dir / "IL.txt", delimiter='\t', unpack=True)
@@ -85,10 +88,10 @@ def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingCon
     ivc = -(360-nvo/2-inv_dur)+360  # Intake Valve Closing [deg]
     evo = 720 - ivc  # Exhaust Valve Opening [deg]
     
-    # Intake conditions
+    # Intake conditions - pure air
     pin = 1.01325e5  # Intake Pressure [Pa]
-    tin = 450  # Intake Temperature [K]
-    compin = {'C8H18': 0, 'O2': 1, 'N2': 3.76, 'CO2': 0, 'H2O': 0}
+    tin = 300  # Intake Temperature [K]
+    compin = {'O2': 0.21, 'N2': 0.79}  # Pure air composition
     
     # Set intake gas state and get properties
     gas.TPX = tin, pin, compin
@@ -96,8 +99,8 @@ def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingCon
     Hin = gas.h
     
     # Exhaust conditions
-    pex = 1.08 * 1.01325e5  # Exhaust Pressure [Pa]
-    tex = 550  # Exhaust Temperature [K]
+    pex = 1.01325e5  # Exhaust Pressure [Pa] - set equal to intake for testing
+    tex = 300  # Exhaust Temperature [K] - set equal to intake for testing
     
     # Set exhaust gas state and get properties
     gas.TPX = tex, pex, compin
@@ -107,13 +110,13 @@ def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingCon
     # Other parameters
     stroke = 0.086  # [m]
     Upbar = 2*stroke*rpm/60  # Mean piston Speed [m/s]
-    twall = 353  # Wall temperature [K]
+    twall = 300  # Wall temperature [K] - set equal to intake for testing
     
-    # Fuel injection parameters
-    minj = 10.0  # Mass of fuel injected [mg/cycle/cyl]
-    injt = 250.0  # Injection timing [deg]
-    injdur = 10.0  # Injection duration [deg]
-    hvap = 350000.0  # Heat of vaporization [J/kg]
+    # Fuel injection parameters - set to 0 for air-only test
+    minj = 0.0  # Mass of fuel injected [mg/cycle/cyl]
+    injt = 0.0  # Injection timing [deg]
+    injdur = 0.0  # Injection duration [deg]
+    hvap = 0.0  # Heat of vaporization [J/kg]
     
     return OperatingConditions(
         soc=evc,  # Start at EVC
@@ -139,7 +142,63 @@ def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingCon
         hvap=hvap
     )
 
-def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
+def plot_cycle_results(results: Dict, cycle_num: int, oper: OperatingConditions):
+    """Plot results for a single cycle."""
+    # Combine all phases
+    t_total = []
+    T = []
+    P = []
+    M = []
+    V = []
+    crank_angle = []
+    
+    t_offset = 0
+    for phase in ['compression1', 'intake', 'compression2', 'exhaust']:
+        t = results[phase]['t']
+        t_total.extend(t + t_offset)
+        T.extend(results[phase]['y'][0])
+        P.extend(results[phase]['y'][2])
+        M.extend(results[phase]['y'][3])
+        V.extend(results[phase]['y'][1])
+        crank_angle.extend(oper.soc + oper.rpm/60*360*t)
+        t_offset += t[-1]
+    
+    # Create subplots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
+    
+    # Temperature plot
+    ax1.plot(crank_angle, T)
+    ax1.set_xlabel('Crank Angle [deg]')
+    ax1.set_ylabel('Temperature [K]')
+    ax1.set_title('Gas Temperature')
+    ax1.grid(True)
+    
+    # Pressure plot
+    ax2.plot(crank_angle, np.array(P)/1e5)  # Convert to bar
+    ax2.set_xlabel('Crank Angle [deg]')
+    ax2.set_ylabel('Pressure [bar]')
+    ax2.set_title('Cylinder Pressure')
+    ax2.grid(True)
+    
+    # Mass plot
+    ax3.plot(crank_angle, np.array(M)*1e6)  # Convert to mg
+    ax3.set_xlabel('Crank Angle [deg]')
+    ax3.set_ylabel('Mass [mg]')
+    ax3.set_title('In-Cylinder Mass')
+    ax3.grid(True)
+    
+    # P-V diagram
+    ax4.plot(V, np.array(P)/1e5)
+    ax4.set_xlabel('Volume [m³]')
+    ax4.set_ylabel('Pressure [bar]')
+    ax4.set_title('P-V Diagram')
+    ax4.grid(True)
+    
+    plt.tight_layout()
+    plt.suptitle(f'Cycle {cycle_num} Results')
+    plt.show()
+
+def run_cycle_phase(phase: str, y0: np.ndarray, ca_span: Tuple[float, float],
                     gas: ct.Solution, init: InitialConditions, geom: GeometryParameters,
                     oper: OperatingConditions, valve: Optional[ValveData] = None) -> Dict:
     """
@@ -151,8 +210,8 @@ def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
         Phase name: 'compression', 'intake', or 'exhaust'
     y0 : np.ndarray
         Initial conditions
-    t_span : Tuple[float, float]
-        Time span for integration
+    ca_span : Tuple[float, float]
+        Crank angle span for integration [degrees]
     gas : ct.Solution
         Cantera Solution object
     init : InitialConditions
@@ -169,23 +228,67 @@ def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
     Dict
         Results dictionary containing end conditions
     """
-    # Select appropriate ODE function based on phase
-    if phase == 'intake':
-        ode_fn = lambda t, y: cycle_ode_intake(t, y, gas, init, geom, oper, valve)
-    elif phase == 'exhaust':
-        ode_fn = lambda t, y: cycle_ode_exhaust(t, y, gas, init, geom, oper, valve)
-    else:  # compression/expansion
-        ode_fn = lambda t, y: cycle_ode(t, y, gas, init, geom, oper)
+    # Convert crank angle span to time span based on RPM
+    t_span = (0, (ca_span[1] - ca_span[0])/(oper.rpm/60*360))
     
-    # Solve ODEs
-    sol = solve_ivp(
-        ode_fn,
-        t_span,
-        y0,
-        method='LSODA',
-        rtol=1e-5,
-        atol=1e-12
-    )
+    print(f"\nStarting {phase} phase (CA={ca_span[0]:.1f}° to {ca_span[1]:.1f}°)")
+    print(f"Initial conditions: T={y0[0]:.1f}K, P={y0[2]/1e5:.2f}bar, m={y0[3]*1e6:.2f}mg")
+    start_time = time.time()
+    
+    # Create wrapper function that uses crank angle as the primary variable
+    def ode_wrapper(t, y):
+        # Calculate current crank angle directly
+        oper.soc = ca_span[0] + (t/t_span[1]) * (ca_span[1] - ca_span[0])
+        
+        # Select appropriate ODE function based on phase
+        if phase == 'intake':
+            return cycle_ode_intake(t, y, gas, init, geom, oper, valve)
+        elif phase == 'exhaust':
+            return cycle_ode_exhaust(t, y, gas, init, geom, oper, valve)
+        else:  # compression/expansion
+            return cycle_ode(t, y, gas, init, geom, oper)
+    
+    # Solve ODEs with appropriate solver settings for each phase
+    if phase in ['intake', 'exhaust']:
+        # Use Radau for stiff valve flow phases
+        sol = solve_ivp(
+            ode_wrapper,
+            t_span,
+            y0,
+            method='Radau',
+            rtol=1e-6,
+            atol=1e-8,
+            first_step=1e-8,  # Small first step for valve events
+            max_step=1e-4,    # Limit maximum step size
+            jac_sparsity=None  # Let solver determine sparsity
+        )
+    else:
+        # Use BDF for compression/expansion phases
+        sol = solve_ivp(
+            ode_wrapper,
+            t_span,
+            y0,
+            method='BDF',
+            rtol=1e-6,
+            atol=1e-8
+        )
+    
+    if not sol.success:
+        print(f"Warning: {phase} phase solver failed: {sol.message}")
+        
+    elapsed_time = time.time() - start_time
+    print(f"Completed {phase} phase in {elapsed_time:.2f} seconds")
+    print(f"Final conditions: T={sol.y[0,-1]:.1f}K, P={sol.y[2,-1]/1e5:.2f}bar, m={sol.y[3,-1]*1e6:.2f}mg")
+    print(f"Number of function evaluations: {sol.nfev}")
+    print(f"Number of steps: {len(sol.t)}")
+    
+    # Check for unrealistic values
+    if sol.y[0,-1] > 3000 or sol.y[0,-1] < 200:  # Temperature limits
+        print(f"Warning: Unrealistic temperature {sol.y[0,-1]:.1f}K")
+    if sol.y[2,-1] > 200e5 or sol.y[2,-1] < 0.5e5:  # Pressure limits (0.5-200 bar)
+        print(f"Warning: Unrealistic pressure {sol.y[2,-1]/1e5:.2f}bar")
+    if sol.y[3,-1] < 0:  # Mass should be positive
+        print(f"Warning: Negative mass {sol.y[3,-1]*1e6:.2f}mg")
     
     # Extract end conditions
     return {
@@ -195,7 +298,8 @@ def run_cycle_phase(phase: str, y0: np.ndarray, t_span: Tuple[float, float],
         'Mend': sol.y[3, -1],    # Mass [kg]
         'Yend': sol.y[4:, -1],   # Species mass fractions [-]
         't': sol.t,              # Time points [s]
-        'y': sol.y               # All solution data
+        'y': sol.y,              # All solution data
+        'ca': np.linspace(ca_span[0], ca_span[1], len(sol.t))  # Crank angle points [deg]
     }
 
 def main():
@@ -204,8 +308,8 @@ def main():
     geom = setup_geometry()
     inv, exv = setup_valve_data()
     
-    # Initialize gas with mechanism
-    gas = ct.Solution('nissan_chem.xml')
+    # Initialize gas with mechanism - using gri30 for air simulation
+    gas = ct.Solution('gri30.yaml')
     
     # Setup operating conditions
     oper = setup_operating_conditions(gas, inv.dur)
@@ -222,6 +326,26 @@ def main():
     V0 = geom.Vcl + np.pi/4 * geom.bore**2 * (geom.conr + geom.a - x0)
     M0 = V0 * gas.density
     
+    print("\nEngine Geometry:")
+    print(f"Bore = {geom.bore*1000:.1f} mm")
+    print(f"Stroke = {geom.a*2*1000:.1f} mm")
+    print(f"Connecting rod = {geom.conr*1000:.1f} mm")
+    print(f"Compression ratio = {(geom.Vcl + geom.Vd)/geom.Vcl:.1f}")
+    print(f"Displacement volume = {geom.Vd*1e6:.1f} cm³")
+    print(f"Clearance volume = {geom.Vcl*1e6:.1f} cm³")
+    
+    print("\nValve Timing:")
+    print(f"EVC = {oper.evc:.1f}°")
+    print(f"IVO = {oper.ivo:.1f}°")
+    print(f"IVC = {oper.ivc:.1f}°")
+    print(f"EVO = {oper.evo:.1f}°")
+    
+    print(f"\nInitial conditions:")
+    print(f"V0 = {V0*1e6:.2f} cm³")
+    print(f"M0 = {M0*1e6:.2f} mg")
+    print(f"Starting crank angle = {oper.soc:.1f}°")
+    print(f"Gas composition: {oper.compin}")
+    
     # Initial state vector
     y0 = np.zeros(4 + gas.n_species)
     y0[0] = oper.tin      # Temperature [K]
@@ -230,47 +354,41 @@ def main():
     y0[3] = M0           # Mass [kg]
     y0[4:] = gas.Y       # Species mass fractions [-]
     
-    # Run multiple cycles
-    n_cycles = 5
-    results = []
+    print("\nStarting single cycle air-only simulation")
+    print("Cycle consists of: EVC→IVO (compression) → IVO→IVC (intake) → IVC→EVO (compression) → EVO→EVC (exhaust)")
     
-    for cycle in range(n_cycles):
-        print(f"Running cycle {cycle+1}")
-        
-        # EVC to IVO (compression)
-        t_span = (0, (oper.ivo - oper.evc)/(oper.rpm/60*360))
-        res1 = run_cycle_phase('compression', y0, t_span, gas, init, geom, oper)
-        
-        # IVO to IVC (intake)
-        oper.soc = oper.ivo
-        init.theta = oper.soc * np.pi/180
-        t_span = (0, (oper.ivc - oper.ivo)/(oper.rpm/60*360))
-        res2 = run_cycle_phase('intake', res1['y'][:,-1], t_span, gas, init, geom, oper, inv)
-        
-        # IVC to EVO (compression + combustion)
-        oper.soc = oper.ivc
-        init.theta = oper.soc * np.pi/180
-        t_span = (0, (oper.evo - oper.ivc)/(oper.rpm/60*360))
-        res3 = run_cycle_phase('compression', res2['y'][:,-1], t_span, gas, init, geom, oper)
-        
-        # EVO to EVC (exhaust)
-        oper.soc = oper.evo
-        init.theta = oper.soc * np.pi/180
-        t_span = (0, (oper.evc + 360 - oper.evo)/(oper.rpm/60*360))
-        res4 = run_cycle_phase('exhaust', res3['y'][:,-1], t_span, gas, init, geom, oper, exv)
-        
-        # Store results
-        results.append({
-            'compression1': res1,
-            'intake': res2,
-            'compression2': res3,
-            'exhaust': res4
-        })
-        
-        # Update initial conditions for next cycle
-        y0 = res4['y'][:,-1]
+    cycle_results = {}
     
-    return results
+    # EVC to IVO (compression)
+    ca_span = (oper.evc, oper.ivo)
+    res1 = run_cycle_phase('compression1', y0, ca_span, gas, init, geom, oper)
+    cycle_results['compression1'] = res1
+    
+    # IVO to IVC (intake)
+    oper.soc = oper.ivo
+    init.theta = oper.soc * np.pi/180
+    ca_span = (oper.ivo, oper.ivc)
+    res2 = run_cycle_phase('intake', res1['y'][:,-1], ca_span, gas, init, geom, oper, inv)
+    cycle_results['intake'] = res2
+    
+    # IVC to EVO (compression)
+    oper.soc = oper.ivc
+    init.theta = oper.soc * np.pi/180
+    ca_span = (oper.ivc, oper.evo)
+    res3 = run_cycle_phase('compression2', res2['y'][:,-1], ca_span, gas, init, geom, oper)
+    cycle_results['compression2'] = res3
+    
+    # EVO to EVC (exhaust)
+    oper.soc = oper.evo
+    init.theta = oper.soc * np.pi/180
+    ca_span = (oper.evo, oper.evc + 360)
+    res4 = run_cycle_phase('exhaust', res3['y'][:,-1], ca_span, gas, init, geom, oper, exv)
+    cycle_results['exhaust'] = res4
+    
+    # Plot results
+    plot_cycle_results(cycle_results, 1, oper)
+    
+    return cycle_results
 
 if __name__ == "__main__":
     results = main() 
