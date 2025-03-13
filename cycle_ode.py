@@ -11,9 +11,7 @@ from mfuel import mfuel
 def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions, 
               geom: GeometryParameters, oper: OperatingConditions) -> np.ndarray:
     """
-    Main ODE system for a zero-dimensional engine cycle simulation.
-    This function handles both compression and expansion phases with fuel injection.
-    For intake and exhaust phases, see cycle_ode_phases.py.
+    Main ODE system for ideal gas compression/expansion.
     
     Parameters
     ----------
@@ -27,7 +25,7 @@ def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions
             y[3] = Total mass [kg]
             y[4:] = Species mass fractions [-]
     gas : ct.Solution
-        Cantera Solution object for thermodynamic properties and kinetics
+        Cantera Solution object for thermodynamic properties
     init : InitialConditions
         Initial conditions
     geom : GeometryParameters
@@ -48,55 +46,32 @@ def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions
     V = y[1]  # Volume [m³]
     P = y[2]  # Pressure [Pa]
     M = y[3]  # Total mass [kg]
-    Y_sp = y[4:]  # Species mass fractions [-]
-    
-    # Specific volume
-    vol = V/M  # [m³/kg]
     
     # Update gas state
-    gas.TPY = T, P, Y_sp
+    gas.TPY = T, P, y[4:]
     
     # Get gas properties
-    R_bulk = gas.cp_mass - gas.cv_mass  # [J/(kg·K)]
-    CV_bulk = gas.cv_mass  # [J/(kg·K)]
-    U_bulk = gas.int_energy_mass  # [J/kg]
-    
-    # Mass balance - fuel injection
-    dmdt, h_f, Y_f = mfuel(t, oper, gas)  # [kg/s], [J/kg], [-]
-    
-    # Species equations
-    # Get species net production rates from Cantera [kg/m³/s]
-    y_dot = gas.net_production_rates * gas.molecular_weights / gas.density
-    dydt[4:] = dmdt/M * (Y_f - Y_sp) + y_dot
+    gamma = gas.cp_mass / gas.cv_mass  # Ratio of specific heats
     
     # Volume change equation
     vdt = vdot1(t, init, geom, oper)  # [m³/s]
     dydt[1] = vdt
     
-    # Energy equation
-    # Calculate gas constants for each species
-    R_k = ct.gas_constant / gas.molecular_weights  # [J/(kg·K)]
-    sum_RYdot = np.dot(R_k, dydt[4:])  # [J/(kg·K·s)]
-    sum_RY = np.dot(R_k, Y_sp)  # [J/(kg·K)]
+    # For adiabatic compression/expansion of ideal gas:
+    # PV^γ = constant
+    # dP/dt = -γ * P * dV/dt / V
+    dydt[2] = -gamma * P * vdt / V  # [Pa/s]
     
-    # Heat transfer
-    A = area1(t, init, geom, oper)  # [m²]
-    # q, _ = heat(t, V, A, init, geom, oper, gas)  # [W]
-    q = 0.0  # Heat transfer disabled for now
+    # For ideal gas, T = PV/(MR)
+    # dT/dt = (V*dP/dt + P*dV/dt)/(MR)
+    R = ct.gas_constant / gas.mean_molecular_weight
+    dydt[0] = (V * dydt[2] + P * vdt) / (M * R)  # [K/s]
     
-    # Species energy generation
-    h_RT = gas.standard_enthalpies_RT  # [(J/mol)/RT]
-    u_nsp = (h_RT * T - T) * R_k  # [J/kg]
-    sum_gen = M * np.dot(dydt[4:], u_nsp)  # [W]
+    # Mass is constant
+    dydt[3] = 0.0
     
-    # Temperature derivative
-    dydt[0] = (1/(M*CV_bulk)) * (-sum_gen - dmdt*U_bulk + dmdt*h_f - P*vdt - q)  # [K/s]
-    
-    # Pressure derivative
-    dydt[2] = P * ((sum_RYdot/sum_RY) - (vdt/V) + (dydt[0]/T) + (dmdt/M))  # [Pa/s]
-    
-    # Mass derivative
-    dydt[3] = dmdt  # [kg/s]
+    # Species mass fractions are constant (for now)
+    dydt[4:] = 0.0
     
     return dydt
 
@@ -122,15 +97,18 @@ def vdot1(t: float, init: InitialConditions, geom: GeometryParameters,
         Rate of volume change [m³/s]
     """
     # Use current crank angle directly from oper.soc
-    theta = oper.soc * np.pi/180  # Convert to radians
+    # At TDC (0°), piston is at top with only clearance volume
+    theta = oper.soc * np.pi/180  # Convert to radians, 0° at TDC
     
-    # Calculate piston position
+    # Calculate piston position from TDC
     x = geom.a * np.cos(theta) + np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)
     
     # Calculate volume change rate using RPM directly
+    # Note: dx_dt is positive when piston moves down (volume increases)
     dx_dt = -geom.a * np.sin(theta) * (1 + 
             geom.a * np.cos(theta) / np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)
             ) * oper.rpm * 2 * np.pi / 60
     
     # Volume change rate is piston area times piston velocity
-    return np.pi * (geom.bore/2)**2 * dx_dt  # [m³/s] 
+    # During compression (EVC to IVO), volume should decrease
+    return -np.pi * (geom.bore/2)**2 * dx_dt  # [m³/s] 

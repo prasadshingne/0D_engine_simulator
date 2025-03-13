@@ -263,14 +263,18 @@ def run_cycle_phase(phase: str, y0: np.ndarray, ca_span: Tuple[float, float],
             jac_sparsity=None  # Let solver determine sparsity
         )
     else:
-        # Use BDF for compression/expansion phases
+        # Use RK45 for compression/expansion phases with dense output
         sol = solve_ivp(
             ode_wrapper,
             t_span,
             y0,
-            method='BDF',
-            rtol=1e-6,
-            atol=1e-8
+            method='RK45',
+            rtol=1e-8,        # Tighter tolerance for smoother curves
+            atol=1e-10,       # Tighter absolute tolerance
+            first_step=1e-6,  # Small first step
+            max_step=1e-4,    # Limit maximum step size
+            dense_output=True,  # Enable dense output for more points
+            t_eval=np.linspace(t_span[0], t_span[1], 1000)  # Force 1000 points
         )
     
     if not sol.success:
@@ -308,7 +312,7 @@ def main():
     geom = setup_geometry()
     inv, exv = setup_valve_data()
     
-    # Initialize gas with mechanism - using gri30 for air simulation
+    # Initialize gas with mechanism
     gas = ct.Solution('gri30.yaml')
     
     # Setup operating conditions
@@ -331,20 +335,12 @@ def main():
     print(f"Stroke = {geom.a*2*1000:.1f} mm")
     print(f"Connecting rod = {geom.conr*1000:.1f} mm")
     print(f"Compression ratio = {(geom.Vcl + geom.Vd)/geom.Vcl:.1f}")
-    print(f"Displacement volume = {geom.Vd*1e6:.1f} cm³")
-    print(f"Clearance volume = {geom.Vcl*1e6:.1f} cm³")
     
-    print("\nValve Timing:")
+    print("\nSimulating EVC to IVO phase:")
     print(f"EVC = {oper.evc:.1f}°")
     print(f"IVO = {oper.ivo:.1f}°")
-    print(f"IVC = {oper.ivc:.1f}°")
-    print(f"EVO = {oper.evo:.1f}°")
-    
-    print(f"\nInitial conditions:")
-    print(f"V0 = {V0*1e6:.2f} cm³")
-    print(f"M0 = {M0*1e6:.2f} mg")
-    print(f"Starting crank angle = {oper.soc:.1f}°")
-    print(f"Gas composition: {oper.compin}")
+    print(f"Initial volume = {V0*1e6:.2f} cm³")
+    print(f"Initial mass = {M0*1e6:.2f} mg")
     
     # Initial state vector
     y0 = np.zeros(4 + gas.n_species)
@@ -354,41 +350,49 @@ def main():
     y0[3] = M0           # Mass [kg]
     y0[4:] = gas.Y       # Species mass fractions [-]
     
-    print("\nStarting single cycle air-only simulation")
-    print("Cycle consists of: EVC→IVO (compression) → IVO→IVC (intake) → IVC→EVO (compression) → EVO→EVC (exhaust)")
-    
-    cycle_results = {}
-    
-    # EVC to IVO (compression)
+    # Run EVC to IVO (compression)
     ca_span = (oper.evc, oper.ivo)
-    res1 = run_cycle_phase('compression1', y0, ca_span, gas, init, geom, oper)
-    cycle_results['compression1'] = res1
-    
-    # IVO to IVC (intake)
-    oper.soc = oper.ivo
-    init.theta = oper.soc * np.pi/180
-    ca_span = (oper.ivo, oper.ivc)
-    res2 = run_cycle_phase('intake', res1['y'][:,-1], ca_span, gas, init, geom, oper, inv)
-    cycle_results['intake'] = res2
-    
-    # IVC to EVO (compression)
-    oper.soc = oper.ivc
-    init.theta = oper.soc * np.pi/180
-    ca_span = (oper.ivc, oper.evo)
-    res3 = run_cycle_phase('compression2', res2['y'][:,-1], ca_span, gas, init, geom, oper)
-    cycle_results['compression2'] = res3
-    
-    # EVO to EVC (exhaust)
-    oper.soc = oper.evo
-    init.theta = oper.soc * np.pi/180
-    ca_span = (oper.evo, oper.evc + 360)
-    res4 = run_cycle_phase('exhaust', res3['y'][:,-1], ca_span, gas, init, geom, oper, exv)
-    cycle_results['exhaust'] = res4
+    results = run_cycle_phase('compression1', y0, ca_span, gas, init, geom, oper)
     
     # Plot results
-    plot_cycle_results(cycle_results, 1, oper)
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
     
-    return cycle_results
+    # Get crank angles for x-axis
+    crank_angle = np.linspace(ca_span[0], ca_span[1], len(results['t']))
+    
+    # Temperature plot
+    ax1.plot(crank_angle, results['y'][0])
+    ax1.set_xlabel('Crank Angle [deg]')
+    ax1.set_ylabel('Temperature [K]')
+    ax1.set_title('Gas Temperature')
+    ax1.grid(True)
+    
+    # Pressure plot
+    ax2.plot(crank_angle, np.array(results['y'][2])/1e5)  # Convert to bar
+    ax2.set_xlabel('Crank Angle [deg]')
+    ax2.set_ylabel('Pressure [bar]')
+    ax2.set_title('Cylinder Pressure')
+    ax2.grid(True)
+    
+    # Mass plot
+    ax3.plot(crank_angle, np.array(results['y'][3])*1e6)  # Convert to mg
+    ax3.set_xlabel('Crank Angle [deg]')
+    ax3.set_ylabel('Mass [mg]')
+    ax3.set_title('In-Cylinder Mass')
+    ax3.grid(True)
+    
+    # P-V diagram
+    ax4.plot(results['y'][1], np.array(results['y'][2])/1e5)
+    ax4.set_xlabel('Volume [m³]')
+    ax4.set_ylabel('Pressure [bar]')
+    ax4.set_title('P-V Diagram')
+    ax4.grid(True)
+    
+    plt.tight_layout()
+    plt.suptitle('EVC to IVO Compression Phase')
+    plt.show()
+    
+    return results
 
 if __name__ == "__main__":
     results = main() 
