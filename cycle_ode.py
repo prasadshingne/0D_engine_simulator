@@ -121,13 +121,13 @@ def vdot1(t: float, init: InitialConditions, geom: GeometryParameters,
     float
         Rate of volume change [m³/s]
     """
-    # Calculate current crank angle
-    theta = init.theta + oper.rpm * 2 * np.pi / 60 * t  # [rad]
+    # Use current crank angle directly from oper.soc
+    theta = oper.soc * np.pi/180  # Convert to radians
     
     # Calculate piston position
     x = geom.a * np.cos(theta) + np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)
     
-    # Calculate volume change rate
+    # Calculate volume change rate using RPM directly
     dx_dt = -geom.a * np.sin(theta) * (1 + 
             geom.a * np.cos(theta) / np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)
             ) * oper.rpm * 2 * np.pi / 60
