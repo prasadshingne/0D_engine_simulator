@@ -18,26 +18,26 @@ class OperatingConditions:
     compin: Dict[str, float]  # Composition inlet
     twall: float  # Wall temperature [K]
     Upbar: float  # Mean piston speed [m/s]
-    R: float = ct.gas_constant  # Universal gas constant [J/(mol·K)]
     
     # Valve timing
     evc: float  # Exhaust valve closing [deg]
     ivo: float  # Intake valve opening [deg]
     ivc: float  # Intake valve closing [deg]
     evo: float  # Exhaust valve opening [deg]
-    nvlv: int = 2  # Number of valves
     
-    # Intake and exhaust properties
+    # Optional parameters with defaults
+    R: float = ct.gas_constant  # Universal gas constant [J/(mol·K)]
+    nvlv: int = 2  # Number of valves
+    minj: float = 0.0  # Mass of fuel injected [mg/cycle/cyl]
+    injt: float = 0.0  # Timing of first injection [deg]
+    injdur: float = 0.0  # Injection duration [deg]
+    hvap: float = 350000.0  # Heat of vaporization [J/kg]
+    
+    # Optional array parameters
     Yin: Optional[np.ndarray] = None  # Intake composition [-]
     Hin: Optional[float] = None  # Intake enthalpy [J/kg]
     Yex: Optional[np.ndarray] = None  # Exhaust composition [-]
     Hex: Optional[float] = None  # Exhaust enthalpy [J/kg]
-    
-    # Fuel injection parameters
-    minj: float = 0.0  # Mass of fuel injected per cylinder per cycle [mg/cycle/cyl]
-    injt: float = 0.0  # Timing of first injection [deg]
-    injdur: float = 0.0  # Injection duration [deg]
-    hvap: float = 350000.0  # Heat of vaporization [J/kg]
 
 @dataclass
 class InitialConditions:
