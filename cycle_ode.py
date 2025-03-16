@@ -29,7 +29,7 @@ def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions
     init : InitialConditions
         Initial conditions
     geom : GeometryParameters
-        Engine geometry parameters
+        Geometry parameters
     oper : OperatingConditions
         Operating conditions
     
@@ -42,7 +42,7 @@ def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions
     dydt = np.zeros_like(y)
     
     # Extract state variables
-    T = y[0]  # Temperature [K]
+    T = max(y[0], 200.0)  # Prevent temperature from going too low
     V = y[1]  # Volume [m³]
     P = y[2]  # Pressure [Pa]
     M = y[3]  # Total mass [kg]
@@ -51,27 +51,39 @@ def cycle_ode(t: float, y: np.ndarray, gas: ct.Solution, init: InitialConditions
     gas.TPY = T, P, y[4:]
     
     # Get gas properties
-    gamma = gas.cp_mass / gas.cv_mass  # Ratio of specific heats
+    cp = gas.cp_mass
+    cv = gas.cv_mass
+    R = ct.gas_constant / gas.mean_molecular_weight
     
     # Volume change equation
     vdt = vdot1(t, init, geom, oper)  # [m³/s]
     dydt[1] = vdt
     
-    # For adiabatic compression/expansion of ideal gas:
-    # PV^γ = constant
-    # dP/dt = -γ * P * dV/dt / V
-    dydt[2] = -gamma * P * vdt / V  # [Pa/s]
+    # Calculate chemical reaction rates
+    wdot = gas.net_production_rates  # [kmol/m³/s]
+    mdot = wdot * gas.molecular_weights  # [kg/m³/s]
     
-    # For ideal gas, T = PV/(MR)
-    # dT/dt = (V*dP/dt + P*dV/dt)/(MR)
-    R = ct.gas_constant / gas.mean_molecular_weight
-    dydt[0] = (V * dydt[2] + P * vdt) / (M * R)  # [K/s]
+    # Species mass fraction rates [1/s]
+    ydot = mdot / gas.density
+    dydt[4:] = ydot
     
-    # Mass is constant
+    # Calculate instantaneous cylinder area
+    A = area1(t, init, geom, oper)  # [m²]
+    
+    # Calculate heat transfer using Woschni correlation
+    q, _ = heat(t, V, A, init, geom, oper, gas)  # [W]
+    
+    # Energy equation including chemical heat release and heat transfer
+    # dT/dt = -1/(M*cv) * (P*dV/dt - Q_chem + Q_wall)
+    Q_chem = -np.sum(gas.partial_molar_enthalpies * wdot) * V  # [W]
+    dydt[0] = -1.0/(M*cv) * (P*vdt - Q_chem + q)
+    
+    # Pressure equation from ideal gas law
+    # P = rho * R * T
+    dydt[2] = P * (dydt[0]/T - vdt/V)
+    
+    # Mass is constant in closed system
     dydt[3] = 0.0
-    
-    # Species mass fractions are constant (for now)
-    dydt[4:] = 0.0
     
     return dydt
 

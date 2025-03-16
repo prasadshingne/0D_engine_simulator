@@ -66,80 +66,67 @@ def setup_valve_data() -> Tuple[ValveData, ValveData]:
         ValveData(ca=exv_ca, lift=exv_lift, refd=exv_refd, ra=exv_ra, cd=exv_cd, dur=exv_dur)
     )
 
-def setup_operating_conditions(gas: ct.Solution, inv_dur: float) -> OperatingConditions:
-    """
-    Setup engine operating conditions.
+def setup_operating_conditions(gas: ct.Solution) -> OperatingConditions:
+    """Setup engine operating conditions."""
+    # Engine speed
+    rpm = 2000  # [rev/min]
     
-    Parameters
-    ----------
-    gas : ct.Solution
-        Cantera Solution object
-    inv_dur : float
-        Intake valve duration [deg]
-    """
-    # Basic parameters
-    rpm = 2000  # Engine speed [rev/min]
-    omega = 2*np.pi*rpm/60  # Crank Speed [rad/sec]
+    # Valve timing for closed cycle
+    ivc = -180  # [deg] before TDC
+    evo = 180   # [deg] after TDC
     
-    # Valve timing
-    nvo = 100  # Negative Valve Overlap [deg]
-    evc = -nvo/2  # Exhaust Valve Closing [deg]
-    ivo = nvo/2  # Intake Valve Opening [deg]
-    ivc = -(360-nvo/2-inv_dur)+360  # Intake Valve Closing [deg]
-    evo = 720 - ivc  # Exhaust Valve Opening [deg]
+    # Initial conditions at IVC
+    pin = 1.0e5  # [Pa]
+    tin = 400  # [K]
     
-    # Intake conditions - pure air
-    pin = 1.01325e5  # Intake Pressure [Pa]
-    tin = 300  # Intake Temperature [K]
-    compin = {'O2': 0.21, 'N2': 0.79}  # Pure air composition
+    # Set up fuel composition (pure iso-octane)
+    # First, set the mixture to stoichiometric
+    gas.set_equivalence_ratio(1.0, 'C8H18:1', 'O2:1, N2:3.76')
     
-    # Set intake gas state and get properties
-    gas.TPX = tin, pin, compin
-    Yin = gas.Y
-    Hin = gas.h
+    # Now set to phi = 0.8
+    gas.set_equivalence_ratio(0.7, 'C8H18:1', 'O2:1, N2:3.76')
+    Yin_fresh = gas.Y
     
-    # Exhaust conditions
-    pex = 1.01325e5  # Exhaust Pressure [Pa] - set equal to intake for testing
-    tex = 300  # Exhaust Temperature [K] - set equal to intake for testing
+    # Get mole fractions for the fresh charge
+    compin = {}
+    for species in ['C8H18', 'O2', 'N2']:  # Removed C7H16
+        compin[species] = float(gas[species].X)  # Convert to float to ensure it's JSON serializable
     
-    # Set exhaust gas state and get properties
-    gas.TPX = tex, pex, compin
-    Yex = gas.Y
-    Hex = gas.h
+    # Set up residual gas composition (burned gas at phi = 0.8)
+    gas.equilibrate('HP')
+    Yin_residual = gas.Y
     
-    # Other parameters
+    # Mix fresh charge and residual (RGF = 30%)
+    Yin = 0.70 * Yin_fresh + 0.30 * Yin_residual
+    
+    # Calculate mixture enthalpy
+    gas.TPY = tin, pin, Yin
+    Hin = gas.enthalpy_mass
+    
+    # Wall temperature
+    twall = 400  # [K]
+    
+    # Mean piston speed
     stroke = 0.086  # [m]
-    Upbar = 2*stroke*rpm/60  # Mean piston Speed [m/s]
-    twall = 300  # Wall temperature [K] - set equal to intake for testing
-    
-    # Fuel injection parameters - set to 0 for air-only test
-    minj = 0.0  # Mass of fuel injected [mg/cycle/cyl]
-    injt = 0.0  # Injection timing [deg]
-    injdur = 0.0  # Injection duration [deg]
-    hvap = 0.0  # Heat of vaporization [J/kg]
+    Upbar = 2 * stroke * rpm / 60  # [m/s]
     
     return OperatingConditions(
-        soc=evc,  # Start at EVC
         rpm=rpm,
-        tin=tin,
         pin=pin,
-        tex=tex,
-        pex=pex,
-        compin=compin,
-        twall=twall,
-        Upbar=Upbar,
-        evc=evc,
-        ivo=ivo,
+        tin=tin,
+        pex=pin,  # Not used in closed cycle
+        tex=tin,  # Not used in closed cycle
+        ivo=0,    # Not used in closed cycle
         ivc=ivc,
         evo=evo,
+        evc=0,    # Not used in closed cycle
+        nvlv=2,   # Not used in closed cycle
         Yin=Yin,
         Hin=Hin,
-        Yex=Yex,
-        Hex=Hex,
-        minj=minj,
-        injt=injt,
-        injdur=injdur,
-        hvap=hvap
+        twall=twall,
+        Upbar=Upbar,
+        soc=ivc,  # Start at IVC
+        compin=compin  # Fresh charge composition
     )
 
 def plot_cycle_results(results: Dict, cycle_num: int, oper: OperatingConditions):
@@ -248,34 +235,19 @@ def run_cycle_phase(phase: str, y0: np.ndarray, ca_span: Tuple[float, float],
         else:  # compression/expansion
             return cycle_ode(t, y, gas, init, geom, oper)
     
-    # Solve ODEs with appropriate solver settings for each phase
-    if phase in ['intake', 'exhaust']:
-        # Use Radau for stiff valve flow phases
-        sol = solve_ivp(
-            ode_wrapper,
-            t_span,
-            y0,
-            method='Radau',
-            rtol=1e-6,
-            atol=1e-8,
-            first_step=1e-8,  # Small first step for valve events
-            max_step=1e-4,    # Limit maximum step size
-            jac_sparsity=None  # Let solver determine sparsity
-        )
-    else:
-        # Use RK45 for compression/expansion phases with dense output
-        sol = solve_ivp(
-            ode_wrapper,
-            t_span,
-            y0,
-            method='RK45',
-            rtol=1e-8,        # Tighter tolerance for smoother curves
-            atol=1e-10,       # Tighter absolute tolerance
-            first_step=1e-6,  # Small first step
-            max_step=1e-4,    # Limit maximum step size
-            dense_output=True,  # Enable dense output for more points
-            t_eval=np.linspace(t_span[0], t_span[1], 1000)  # Force 1000 points
-        )
+    # Use LSODA solver which automatically switches between stiff/non-stiff methods
+    sol = solve_ivp(
+        ode_wrapper,
+        t_span,
+        y0,
+        method='LSODA',       # Automatically switches between stiff/non-stiff methods
+        rtol=1e-4,           # Moderate relative tolerance
+        atol=1e-6,           # Moderate absolute tolerance
+        max_step=1e-3,       # Reasonable maximum step size
+        first_step=1e-6,     # Reasonable first step size
+        dense_output=True,   # Enable dense output for smoother curves
+        t_eval=np.linspace(t_span[0], t_span[1], 200)  # Keep same number of output points
+    )
     
     if not sol.success:
         print(f"Warning: {phase} phase solver failed: {sol.message}")
@@ -307,24 +279,23 @@ def run_cycle_phase(phase: str, y0: np.ndarray, ca_span: Tuple[float, float],
     }
 
 def main():
-    """Main function to run the engine simulation."""
-    # Setup geometry and valve data
+    """Main function to run the closed cycle simulation (IVC to EVO)."""
+    # Setup geometry
     geom = setup_geometry()
-    inv, exv = setup_valve_data()
     
-    # Initialize gas with mechanism
-    gas = ct.Solution('gri30.yaml')
+    # Initialize gas with Nissan mechanism
+    gas = ct.Solution('input_data/Nissan_chem.yaml')
     
     # Setup operating conditions
-    oper = setup_operating_conditions(gas, inv.dur)
+    oper = setup_operating_conditions(gas)
     
-    # Initial conditions at start of cycle (EVC)
-    init = InitialConditions(theta=oper.soc * np.pi/180)
+    # Initial conditions at IVC
+    init = InitialConditions(theta=oper.ivc * np.pi/180)  # Convert to radians
     
     # Set initial gas state
-    gas.TPX = oper.tin, oper.pin, oper.compin
+    gas.TPY = oper.tin, oper.pin, oper.Yin
     
-    # Calculate initial volume and mass
+    # Calculate initial volume at IVC
     x0 = (geom.a * np.cos(init.theta) + 
           np.sqrt(geom.conr**2 - (geom.a * np.sin(init.theta))**2))
     V0 = geom.Vcl + np.pi/4 * geom.bore**2 * (geom.conr + geom.a - x0)
@@ -336,29 +307,39 @@ def main():
     print(f"Connecting rod = {geom.conr*1000:.1f} mm")
     print(f"Compression ratio = {(geom.Vcl + geom.Vd)/geom.Vcl:.1f}")
     
-    print("\nSimulating EVC to IVO phase:")
-    print(f"EVC = {oper.evc:.1f}°")
-    print(f"IVO = {oper.ivo:.1f}°")
-    print(f"Initial volume = {V0*1e6:.2f} cm³")
-    print(f"Initial mass = {M0*1e6:.2f} mg")
+    print("\nSimulating closed cycle (IVC to EVO):")
+    print(f"IVC = {oper.ivc:.1f}°")
+    print(f"EVO = {oper.evo:.1f}°")
+    print(f"Initial conditions at IVC:")
+    print(f"Temperature = {oper.tin:.1f} K")
+    print(f"Pressure = {oper.pin/1e5:.2f} bar")
+    print(f"Volume = {V0*1e6:.2f} cm³")
+    print(f"Mass = {M0*1e6:.2f} mg")
     
     # Initial state vector
-    y0 = np.zeros(4 + gas.n_species)
-    y0[0] = oper.tin      # Temperature [K]
-    y0[1] = V0           # Volume [m³]
-    y0[2] = oper.pin     # Pressure [Pa]
-    y0[3] = M0           # Mass [kg]
-    y0[4:] = gas.Y       # Species mass fractions [-]
+    y0 = np.zeros(gas.n_species + 4)
+    y0[0] = oper.tin  # Temperature [K]
+    y0[1] = V0        # Volume [m³]
+    y0[2] = oper.pin  # Pressure [Pa]
+    y0[3] = M0        # Mass [kg]
+    y0[4:] = oper.Yin # Species mass fractions [-]
     
-    # Run EVC to IVO (compression)
-    ca_span = (oper.evc, oper.ivo)
-    results = run_cycle_phase('compression1', y0, ca_span, gas, init, geom, oper)
+    # Run closed cycle simulation
+    results = run_cycle_phase(
+        'closed_cycle',
+        y0,
+        (oper.ivc, oper.evo),
+        gas,
+        init,
+        geom,
+        oper
+    )
     
     # Plot results
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
     
     # Get crank angles for x-axis
-    crank_angle = np.linspace(ca_span[0], ca_span[1], len(results['t']))
+    crank_angle = np.linspace(oper.ivc, oper.evo, len(results['t']))
     
     # Temperature plot
     ax1.plot(crank_angle, results['y'][0])
@@ -389,7 +370,12 @@ def main():
     ax4.grid(True)
     
     plt.tight_layout()
-    plt.suptitle('EVC to IVO Compression Phase')
+    plt.suptitle('Closed Cycle (IVC to EVO)')
+    
+    # Save the figure
+    plt.savefig('main_combustion_cycle.png', dpi=300, bbox_inches='tight')
+    
+    # Display the plot
     plt.show()
     
     return results

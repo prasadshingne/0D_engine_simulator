@@ -1,73 +1,118 @@
-from typing import Tuple
-from engine_types import OperatingConditions, Gas
+"""Heat transfer calculations using Woschni correlation."""
 
-def _calculate_woschni_coefficient(vol: float, pressure_kpa: float, temperature: float, mean_piston_speed: float) -> float:
+from typing import Tuple
+import numpy as np
+from engine_types import OperatingConditions, InitialConditions, GeometryParameters
+
+def _calculate_woschni_coefficient(t: float, vol: float, pressure: float, temperature: float,
+                                init: InitialConditions, geom: GeometryParameters,
+                                oper: OperatingConditions) -> float:
     """
-    Calculate heat transfer coefficient using modified Woschni correlation.
+    Calculate heat transfer coefficient using Woschni correlation.
     
-    Args:
-        vol: Volume [m³]
-        pressure_kpa: Pressure [kPa]
-        temperature: Temperature [K]
-        mean_piston_speed: Mean piston speed [m/s]
+    Parameters
+    ----------
+    t : float
+        Time [s]
+    vol : float
+        Volume [m³]
+    pressure : float
+        Pressure [Pa]
+    temperature : float
+        Temperature [K]
+    init : InitialConditions
+        Initial conditions
+    geom : GeometryParameters
+        Geometry parameters
+    oper : OperatingConditions
+        Operating conditions
     
-    Returns:
+    Returns
+    -------
+    float
         Heat transfer coefficient [W/(m²·K)]
     """
-    # Constants for modified Woschni correlation
-    C1 = 130.0  # Coefficient
-    C2 = 4.0    # Volume exponent
-    C3 = 0.8    # Pressure exponent
-    C4 = -0.4   # Temperature exponent
-    C5 = 0.8    # Velocity exponent
+    # Calculate current crank angle
+    theta = init.theta + oper.rpm * 2 * np.pi / 60 * t  # [rad]
     
-    return (C1 * vol**C2 * (pressure_kpa)**C3 * 
-            temperature**C4 * (mean_piston_speed + 1.4)**C5)
+    # Calculate instantaneous piston speed
+    dx_dt = -geom.a * np.sin(theta) * (1 + 
+            geom.a * np.cos(theta) / np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)
+            ) * oper.rpm * 2 * np.pi / 60  # [m/s]
+    
+    # Woschni correlation coefficients
+    C1 = 2.28  # Coefficient for mean piston speed term
+    C2 = 0.00324  # Coefficient for motoring pressure term
+    
+    # Calculate characteristic velocity
+    # During compression/expansion: w = C1*Up
+    # During combustion/expansion: w = C1*Up + C2*(Vd*T1)/(p1*V1)*(p-pm)
+    w = C1 * abs(dx_dt)  # [m/s]
+    
+    # Add combustion term if after TDC
+    if theta > 0:
+        # Get reference conditions at IVC
+        V1 = geom.Vcl + np.pi/4 * geom.bore**2 * (geom.conr + geom.a - 
+             (geom.a * np.cos(init.theta) + 
+              np.sqrt(geom.conr**2 - (geom.a * np.sin(init.theta))**2)))  # [m³]
+        p1 = oper.pin  # [Pa]
+        T1 = oper.tin  # [K]
+        
+        # Calculate motoring pressure (assuming polytropic compression)
+        gamma = 1.35  # Specific heat ratio for air
+        Vm = geom.Vcl + np.pi/4 * geom.bore**2 * (geom.conr + geom.a - 
+             (geom.a * np.cos(theta) + 
+              np.sqrt(geom.conr**2 - (geom.a * np.sin(theta))**2)))  # [m³]
+        pm = p1 * (V1/Vm)**gamma  # [Pa]
+        
+        # Add combustion term
+        w += C2 * geom.Vd * T1 / (p1 * V1) * (pressure - pm)  # [m/s]
+    
+    # Constants for Woschni correlation
+    C = 3.26  # Overall coefficient
+    d = geom.bore  # Characteristic length [m]
+    
+    # Calculate heat transfer coefficient
+    # h = C*d^(-0.2)*p^(0.8)*T^(-0.53)*w^(0.8)
+    h = C * d**(-0.2) * (pressure/1e5)**0.8 * temperature**(-0.53) * w**0.8
+    
+    return h
 
-def heat(t: float, vol: float, area: float, init: object, geom: object, 
-        oper: OperatingConditions, gas: Gas) -> Tuple[float, float]:
+def heat(t: float, vol: float, area: float, init: InitialConditions,
+         geom: GeometryParameters, oper: OperatingConditions, gas: object) -> Tuple[float, float]:
     """
     Calculate heat transfer coefficient and heat loss.
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     t : float
         Time [s]
     vol : float
         Volume [m³]
     area : float
         Area [m²]
-    init : object
+    init : InitialConditions
         Initial conditions
-    geom : object
+    geom : GeometryParameters
         Geometry parameters
     oper : OperatingConditions
-        Engine operating conditions
-    gas : Gas
-        Gas state object with pressure and temperature methods
+        Operating conditions
+    gas : object
+        Gas object with pressure and temperature properties
     
-    Returns:
-    --------
+    Returns
+    -------
     Tuple[float, float]
-        (q, hh) where:
-        q : float
-            Instantaneous heat loss [W]
-        hh : float
-            Heat transfer coefficient [W/(m²·K)]
+        Heat loss [W], Heat transfer coefficient [W/(m²·K)]
     """
-    # Get pressure and temperature from gas object
-    pressure_kpa = gas.pressure() / 1e3  # Convert Pa to kPa
-    temperature = gas.temperature()
+    # Get pressure and temperature
+    pressure = gas.P  # [Pa]
+    temperature = gas.T  # [K]
     
-    # Calculate heat transfer coefficient using Woschni correlation
-    hh = _calculate_woschni_coefficient(
-        vol=vol,
-        pressure_kpa=pressure_kpa,
-        temperature=temperature,
-        mean_piston_speed=oper.Upbar
-    )
+    # Calculate heat transfer coefficient
+    h = _calculate_woschni_coefficient(t, vol, pressure, temperature, init, geom, oper)
     
-    # Calculate instantaneous heat loss
-    q = hh * area * (temperature - oper.twall)
+    # Calculate heat loss (positive = loss to walls)
+    q = h * area * (temperature - oper.twall)
     
-    return q, hh 
+    return q, h 
