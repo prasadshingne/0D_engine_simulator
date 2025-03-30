@@ -53,12 +53,24 @@ The simulation results will be saved in `data/output/`.
 
 ## Configuration
 
-Engine and simulation parameters can be modified in `src/config/default_config.yaml`:
+Engine and simulation parameters can be modified in `src/config/default_config.yaml`. Key parameters include:
 
-- Engine geometry (bore, stroke, compression ratio)
-- Operating conditions (speed, initial temperature/pressure)
-- Mixture composition (fuel, equivalence ratio, EGR fraction)
-- Solver settings (tolerances, step sizes)
+```yaml
+# Engine geometry
+bore: 0.086          # Bore diameter [m]
+stroke: 0.086        # Stroke length [m]
+comp_ratio: 12.5     # Compression ratio [-]
+
+# Operating conditions
+speed: 2000          # Engine speed [rpm]
+temperature: 480.0   # Initial temperature [K]
+pressure: 1.0e5      # Initial pressure [Pa]
+
+# Mixture composition
+fuel: "C8H18"        # Fuel species name
+phi: 0.70           # Equivalence ratio [-]
+egr: 0.30           # EGR fraction [-]
+```
 
 ## References
 
@@ -66,41 +78,13 @@ Engine and simulation parameters can be modified in `src/config/default_config.y
 
 ## Sample Results
 
-![HCCI Engine Simulation Results](main_combustion_cycle.png)
+![HCCI Engine Simulation Results](data/output/interactive_plots.png)
 
-The figure shows typical simulation results for a closed-cycle HCCI simulation from IVC (-180°) to EVO (180°):
-
-**Top Left: Gas Temperature**
-- Initial temperature at IVC: 450 K
-- Compression heating up to ~1000 K
-- Rapid temperature rise due to auto-ignition around TDC
-- Peak temperature ~2100 K
-- Expansion cooling after combustion
-
-**Top Right: Cylinder Pressure**
-- Initial pressure at IVC: 1.0 bar
-- Compression to ~30 bar
-- Sharp pressure rise from combustion
-- Peak pressure ~65 bar
-- Expansion back to ~3 bar at EVO
-
-**Bottom Left: In-Cylinder Mass**
-- Constant mass during closed cycle (~480 mg)
-- Validates mass conservation
-- No flow across boundaries (closed valves)
-
-**Bottom Right: P-V Diagram**
-- Clockwise loop indicating positive work
-- Compression from right to left
-- Combustion at minimum volume
-- Expansion from left to right
-- Area represents net work output
-
-The results demonstrate key HCCI characteristics:
-- Rapid, simultaneous auto-ignition near TDC
-- High peak pressure rise rate
-- Short combustion duration
-- Significant heat release during constant volume
+The figure shows typical simulation results for a closed-cycle HCCI simulation from IVC (-180°) to EVO (180°), including:
+- P-V diagram showing compression, combustion, and expansion
+- Temperature and pressure evolution over the cycle
+- Major and minor species concentrations
+- Mass conservation verification
 
 ## Model Formulation
 
