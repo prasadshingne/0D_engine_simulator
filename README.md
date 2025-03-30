@@ -56,20 +56,26 @@ The simulation results will be saved in `data/output/`.
 Engine and simulation parameters can be modified in `src/config/default_config.yaml`. Key parameters include:
 
 ```yaml
-# Engine geometry
-bore: 0.086          # Bore diameter [m]
-stroke: 0.086        # Stroke length [m]
-comp_ratio: 12.5     # Compression ratio [-]
+engine:
+  geometry:
+    bore: 0.086          # Bore diameter [m]
+    stroke: 0.086        # Stroke length [m]
+    con_rod: 0.1455      # Connecting rod length [m]
+    comp_ratio: 12.5     # Compression ratio [-]
+    
+  operating_conditions:
+    speed: 2000          # Engine speed [rpm]
+    wall_temp: 400       # Wall temperature [K]
 
-# Operating conditions
-speed: 2000          # Engine speed [rpm]
-temperature: 480.0   # Initial temperature [K]
-pressure: 1.0e5      # Initial pressure [Pa]
-
-# Mixture composition
-fuel: "C8H18"        # Fuel species name
-phi: 0.70           # Equivalence ratio [-]
-egr: 0.30           # EGR fraction [-]
+chemistry:
+  mechanism: "mechanisms/Nissan_chem.yaml"
+  fuel: "C8H18"         # Fuel species (iso-octane)
+  phi: 0.7              # Equivalence ratio [-]
+  egr: 0.3              # EGR fraction [-]
+    
+initial_conditions:
+  pressure: 1.0e5        # Initial pressure [Pa]
+  temperature: 450       # Initial temperature [K]
 ```
 
 ## References
@@ -257,89 +263,3 @@ Planned improvements:
 5. More detailed heat transfer models
 6. Crevice flow modeling
 7. Blow-by losses
-
-## Directory Structure
-
-```
-0D_engine_simulator/
-├── config/
-│   ├── default_config.yaml      # Default simulation parameters
-│   └── user_config.yaml         # User-specific overrides
-├── input_data/
-│   ├── mechanisms/              # Chemical mechanisms
-│   │   └── Nissan_chem.yaml
-│   └── valve_data/              # Valve lift profiles
-│       ├── IL.txt
-│       └── EL.txt
-├── src/
-│   ├── __init__.py
-│   ├── engine/
-│   │   ├── __init__.py
-│   │   ├── geometry.py          # Engine geometry calculations
-│   │   ├── heat_transfer.py     # Heat transfer models
-│   │   └── valve_flow.py        # Valve flow calculations
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── chemistry.py         # Chemical kinetics interface
-│   │   └── thermodynamics.py    # Thermo properties
-│   └── simulation/
-│       ├── __init__.py
-│       ├── solver.py            # ODE solver setup
-│       └── results.py           # Results processing
-├── examples/
-│   ├── basic_hcci.py           # Simple HCCI example
-│   └── parameter_sweep.py       # Parameter study example
-├── tests/
-│   ├── __init__.py
-│   ├── test_geometry.py
-│   └── test_solver.py
-├── main.py                      # Main entry point
-├── setup.py                     # Installation script
-└── README.md
-```
-
-# default_config.yaml
-engine:
-  geometry:
-    bore: 0.086          # m
-    stroke: 0.086        # m
-    con_rod: 0.1455      # m
-    comp_ratio: 12.5     # -
-  
-  operating_conditions:
-    speed: 2000          # rpm
-    wall_temp: 400       # K
-    
-  valves:
-    intake:
-      timing:
-        open: -360       # deg
-        close: -180      # deg
-      lift_file: "IL.txt"
-    exhaust:
-      timing:
-        open: 180        # deg
-        close: 360       # deg
-      lift_file: "EL.txt"
-
-simulation:
-  chemistry:
-    mechanism: "Nissan_chem.yaml"
-    fuel: "C8H18"
-    phi: 0.7
-    egr: 0.3
-    
-  initial_conditions:
-    pressure: 1.0e5      # Pa
-    temperature: 400     # K
-    
-  solver:
-    rtol: 1.0e-4
-    atol: 1.0e-6
-    max_step: 1.0e-3
-    first_step: 1.0e-6
-    
-  output:
-    save_path: "results/"
-    plot_format: "png"
-    dpi: 300
