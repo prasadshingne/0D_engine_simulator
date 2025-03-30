@@ -1,6 +1,68 @@
 # 0D Engine Simulator
 
-A zero-dimensional (0D) engine simulation tool for modeling HCCI combustion using detailed chemical kinetics.
+A zero-dimensional (0D) engine simulator for modeling closed-cycle operation with detailed chemical kinetics. The simulator uses a reduced iso-octane mechanism developed by Nissan [1] for efficient yet accurate combustion predictions.
+
+## Features
+
+- Closed-cycle engine simulation (IVC to EVO)
+- Detailed chemical kinetics using Cantera
+- Woschni heat transfer model
+- EGR handling with equilibrium composition
+- Interactive plotting of results
+
+## Project Structure
+
+```
+.
+├── src/               # Core simulation code
+│   ├── engine/       # Engine geometry and heat transfer
+│   ├── models/       # Physical models (chemistry, etc.)
+│   ├── simulation/   # Solver and simulation code
+│   └── config/       # Configuration files
+├── scripts/          # Runnable scripts
+├── data/             # Data files
+│   ├── input/        # Input data files
+│   ├── mechanisms/   # Reaction mechanisms
+│   └── output/       # Simulation results
+├── tests/            # Test files
+└── docs/             # Documentation
+```
+
+## Requirements
+
+- Python 3.8+
+- Cantera 2.6+
+- NumPy
+- SciPy
+- Matplotlib
+- PyYAML
+
+## Quick Start
+
+1. Install dependencies:
+```bash
+pip install cantera numpy scipy matplotlib pyyaml
+```
+
+2. Run simulation:
+```bash
+python scripts/run_simulation.py
+```
+
+The simulation results will be saved in `data/output/`.
+
+## Configuration
+
+Engine and simulation parameters can be modified in `src/config/default_config.yaml`:
+
+- Engine geometry (bore, stroke, compression ratio)
+- Operating conditions (speed, initial temperature/pressure)
+- Mixture composition (fuel, equivalence ratio, EGR fraction)
+- Solver settings (tolerances, step sizes)
+
+## References
+
+[1] T. Tsurushima, "A new skeletal PRF kinetic model for HCCI combustion," Proceedings of the Combustion Institute, vol. 32, no. 2, pp. 2835-2841, 2009. [DOI: 10.1016/j.proci.2008.06.018](https://doi.org/10.1016/j.proci.2008.06.018)
 
 ## Sample Results
 
@@ -9,7 +71,7 @@ A zero-dimensional (0D) engine simulation tool for modeling HCCI combustion usin
 The figure shows typical simulation results for a closed-cycle HCCI simulation from IVC (-180°) to EVO (180°):
 
 **Top Left: Gas Temperature**
-- Initial temperature at IVC: 400 K
+- Initial temperature at IVC: 450 K
 - Compression heating up to ~1000 K
 - Rapid temperature rise due to auto-ignition around TDC
 - Peak temperature ~2100 K
@@ -211,3 +273,89 @@ Planned improvements:
 5. More detailed heat transfer models
 6. Crevice flow modeling
 7. Blow-by losses
+
+## Directory Structure
+
+```
+0D_engine_simulator/
+├── config/
+│   ├── default_config.yaml      # Default simulation parameters
+│   └── user_config.yaml         # User-specific overrides
+├── input_data/
+│   ├── mechanisms/              # Chemical mechanisms
+│   │   └── Nissan_chem.yaml
+│   └── valve_data/              # Valve lift profiles
+│       ├── IL.txt
+│       └── EL.txt
+├── src/
+│   ├── __init__.py
+│   ├── engine/
+│   │   ├── __init__.py
+│   │   ├── geometry.py          # Engine geometry calculations
+│   │   ├── heat_transfer.py     # Heat transfer models
+│   │   └── valve_flow.py        # Valve flow calculations
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── chemistry.py         # Chemical kinetics interface
+│   │   └── thermodynamics.py    # Thermo properties
+│   └── simulation/
+│       ├── __init__.py
+│       ├── solver.py            # ODE solver setup
+│       └── results.py           # Results processing
+├── examples/
+│   ├── basic_hcci.py           # Simple HCCI example
+│   └── parameter_sweep.py       # Parameter study example
+├── tests/
+│   ├── __init__.py
+│   ├── test_geometry.py
+│   └── test_solver.py
+├── main.py                      # Main entry point
+├── setup.py                     # Installation script
+└── README.md
+```
+
+# default_config.yaml
+engine:
+  geometry:
+    bore: 0.086          # m
+    stroke: 0.086        # m
+    con_rod: 0.1455      # m
+    comp_ratio: 12.5     # -
+  
+  operating_conditions:
+    speed: 2000          # rpm
+    wall_temp: 400       # K
+    
+  valves:
+    intake:
+      timing:
+        open: -360       # deg
+        close: -180      # deg
+      lift_file: "IL.txt"
+    exhaust:
+      timing:
+        open: 180        # deg
+        close: 360       # deg
+      lift_file: "EL.txt"
+
+simulation:
+  chemistry:
+    mechanism: "Nissan_chem.yaml"
+    fuel: "C8H18"
+    phi: 0.7
+    egr: 0.3
+    
+  initial_conditions:
+    pressure: 1.0e5      # Pa
+    temperature: 400     # K
+    
+  solver:
+    rtol: 1.0e-4
+    atol: 1.0e-6
+    max_step: 1.0e-3
+    first_step: 1.0e-6
+    
+  output:
+    save_path: "results/"
+    plot_format: "png"
+    dpi: 300
