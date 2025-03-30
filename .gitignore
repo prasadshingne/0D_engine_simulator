@@ -2,6 +2,10 @@
 data/mechanisms/*
 !data/mechanisms/.gitkeep
 
+# Ignore input files but keep folder structure
+data/input/*
+!data/input/.gitkeep
+
 # Output files
 data/output/*
 !data/output/.gitkeep
