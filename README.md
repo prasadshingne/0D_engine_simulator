@@ -1,4 +1,4 @@
-# 0D Engine Simulator
+# Engine Simulator
 
 A zero-dimensional (0D) engine simulator for modeling closed-cycle operation with detailed chemical kinetics. The simulator uses a reduced iso-octane mechanism developed by Nissan [1] for efficient yet accurate combustion predictions.
 
