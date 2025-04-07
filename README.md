@@ -92,6 +92,22 @@ The figure shows typical simulation results for a closed-cycle HCCI simulation f
 - Major and minor species concentrations
 - Mass conservation verification
 
+### Adiabatic vs Non-Adiabatic Comparison
+
+The simulator supports both adiabatic and non-adiabatic operation modes. The adiabatic mode disables heat transfer to the cylinder walls, providing a useful baseline for validating the thermodynamic model and understanding the impact of heat transfer.
+
+![Adiabatic Comparison](data/output/adiabatic_comparison.png)
+
+The comparison shows:
+- Higher peak temperatures in adiabatic operation due to no heat loss
+- Higher peak pressures in adiabatic operation
+- Differences in expansion behavior due to heat transfer effects
+
+You can run this comparison using:
+```bash
+python scripts/compare_adiabatic.py
+```
+
 ## Model Formulation
 
 ### Key Assumptions
