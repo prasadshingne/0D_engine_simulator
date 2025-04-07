@@ -7,22 +7,22 @@ engine:
     
   operating_conditions:
     speed: 2000          # rpm
-    wall_temp: 400       # K
+    wall_temp: 358.15    # K (85°C)
     
   simulation:
     start_ca: -180       # deg (IVC)
     end_ca: 180         # deg (EVO)
 
 chemistry:
-  mechanism: "mechanisms/Nissan_chem.yaml"  # Mechanism file path
+  mechanism: "data/mechanisms/Nissan_chem.yaml"  # Mechanism file path
   fuel: "C8H18"         # iso-octane
   phi: 0.7              # lean mixture
   egr: 0.3              # residual gas fraction
     
 initial_conditions:
   # Initial state at IVC (start of compression)
-  pressure: 1.0e5        # Initial pressure [Pa]
-  temperature: 450       # Initial temperature [K]
+  pressure: 1.01325e5        # Initial pressure [Pa]
+  temperature: 470       # Initial temperature [K]
     
 solver:
   method: "LSODA"       # solver method
@@ -30,8 +30,9 @@ solver:
   atol: 1.0e-6          # absolute tolerance
   max_step: 1.0e-3      # maximum step size
   first_step: 1.0e-6    # initial step size
+  adiabatic: true       # whether to run in adiabatic mode (no heat transfer)
   
 output:
-  save_path: "results/"  # Path relative to project root
+  save_path: "data/output/"  # Path relative to project root
   plot_format: "png"
   dpi: 300 
