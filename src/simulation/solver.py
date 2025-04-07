@@ -18,6 +18,7 @@ class SolverParams:
     atol: float = 1.0e-7     # Absolute tolerance (balanced)
     max_step: float = 5.0e-4  # Maximum step size (increased)
     first_step: float = 1.0e-6  # First step size (increased)
+    adiabatic: bool = False  # Whether to run in adiabatic mode (no heat transfer)
     min_temp: float = 200.0   # Minimum allowed temperature [K]
     max_temp: float = 3500.0  # Maximum allowed temperature [K]
     min_press: float = 1e4    # Minimum allowed pressure [Pa]
@@ -92,15 +93,16 @@ class EngineSolver:
         mdot, Q_chem = self.chemistry.get_reaction_rates()  # Q_chem in [W/m³]
         ydot = mdot / props['rho']
         
-        # Calculate heat transfer only if temperature difference is significant
-        if abs(T - T_wall) > 50:  # Skip if ΔT < 50K
+        # Calculate heat transfer
+        if self.params.adiabatic:
+            Q_wall = 0.0
+            h_coeff = 0.0
+        else:
             p_motored = self._calculate_motored_pressure(theta)
-            Q_wall, _ = self.heat_transfer.heat_transfer_rate(
+            Q_wall, h_coeff = self.heat_transfer.heat_transfer_rate(
                 theta, rpm, P, T, p_motored,
                 self.p_ref, self.T_ref, self.V_ref, T_wall
             )
-        else:
-            Q_wall = 0.0
         
         # Energy equation
         cv = props['cv']  # cv is already bounded in chemistry
