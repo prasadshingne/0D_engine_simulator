@@ -7,7 +7,7 @@ data/input/*
 !data/input/.gitkeep
 
 # Output files
-data/output/*
+data/output/minor_species*
 !data/output/.gitkeep
 
 # Python
