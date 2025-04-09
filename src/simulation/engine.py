@@ -44,6 +44,7 @@ class EngineConfig:
     atol: float        # Absolute tolerance
     max_step: float    # Maximum step size
     first_step: float  # First step size
+    adiabatic: bool    # Whether to run in adiabatic mode
     
     # Output settings
     save_path: str     # Path to save results
@@ -87,6 +88,7 @@ class EngineConfig:
             atol=float(config['solver']['atol']),
             max_step=float(config['solver']['max_step']),
             first_step=float(config['solver']['first_step']),
+            adiabatic=bool(config['solver']['adiabatic']),
             
             # Output settings
             save_path=str(config['output']['save_path']),
@@ -142,7 +144,8 @@ class EngineSimulation:
                 rtol=config.rtol,
                 atol=config.atol,
                 max_step=config.max_step,
-                first_step=config.first_step
+                first_step=config.first_step,
+                adiabatic=config.adiabatic
             )
         )
         
