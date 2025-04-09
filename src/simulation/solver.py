@@ -13,12 +13,12 @@ from ..models.chemistry import Chemistry
 @dataclass
 class SolverParams:
     """Solver parameters."""
-    method: str = "LSODA"    # Integration method (matches original)
-    rtol: float = 1.0e-5     # Relative tolerance (balanced)
-    atol: float = 1.0e-7     # Absolute tolerance (balanced)
-    max_step: float = 5.0e-4  # Maximum step size (increased)
-    first_step: float = 1.0e-6  # First step size (increased)
-    adiabatic: bool = False  # Whether to run in adiabatic mode (no heat transfer)
+    method: str = "LSODA"     # Integration method
+    rtol: float = 1.0e-4      # Relative tolerance (relaxed)
+    atol: float = 1.0e-6      # Absolute tolerance (relaxed)
+    max_step: float = 2.0e-3  # Maximum step size
+    first_step: float = 1.0e-5  # First step size
+    adiabatic: bool = False   # Whether to run in adiabatic mode
     min_temp: float = 200.0   # Minimum allowed temperature [K]
     max_temp: float = 3500.0  # Maximum allowed temperature [K]
     min_press: float = 1e4    # Minimum allowed pressure [Pa]
@@ -172,8 +172,8 @@ class EngineSolver:
         self.T_ref = y0[0]
         self.V_ref = y0[1]
         
-        # Create time evaluation points (reduced number)
-        self.t_eval = np.linspace(t_span[0], t_span[1], 100)  # Keep 100 points for speed
+        # Create time evaluation points (increased for smoothness)
+        self.t_eval = np.linspace(t_span[0], t_span[1], 700)  # Increased from 100 to 700 points
         
         # Initialize progress bar if requested
         if self.params.show_progress:
