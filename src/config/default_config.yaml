@@ -22,7 +22,7 @@ chemistry:
 initial_conditions:
   # Initial state at IVC (start of compression)
   pressure: 1.01325e5        # Initial pressure [Pa]
-  temperature: 470       # Initial temperature [K]
+  temperature: 475       # Initial temperature [K]
     
 solver:
   method: "LSODA"       # solver method
@@ -30,7 +30,7 @@ solver:
   atol: 1.0e-6          # absolute tolerance
   max_step: 1.0e-3      # maximum step size
   first_step: 1.0e-6    # initial step size
-  adiabatic: true       # whether to run in adiabatic mode (no heat transfer)
+  adiabatic: false       # whether to run in adiabatic mode (no heat transfer)
   
 output:
   save_path: "data/output/"  # Path relative to project root

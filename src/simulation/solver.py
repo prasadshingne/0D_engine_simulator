@@ -23,10 +23,11 @@ class SolverParams:
     max_temp: float = 3500.0  # Maximum allowed temperature [K]
     min_press: float = 1e4    # Minimum allowed pressure [Pa]
     max_press: float = 1e8    # Maximum allowed pressure [Pa]
-    min_mass_fraction: float = -1e-10  # Minimum allowed mass fraction before error
+    min_mass_fraction: float = -1e-10  # Minimum allowed mass fraction
     mass_fraction_threshold: float = 1e-12  # Threshold below which to set to zero
     max_rate_limit: float = 1000.0  # Maximum allowed fractional change in mass fraction per step
-    
+    show_progress: bool = True  # Whether to show progress bar
+
 class EngineSolver:
     """Engine cycle ODE solver."""
     
@@ -50,10 +51,12 @@ class EngineSolver:
         self.heat_transfer = heat_transfer
         self.chemistry = chemistry
         self.params = params
-        self.pbar = None
-        self.last_t = None  # Track last time for progress updates
-        self.t_eval = None  # Store evaluation points
-        self.gamma = 1.35   # Cache gamma for motored pressure calc
+        self.progress_bar = None
+        self.last_t = None
+        self.t_eval = None
+        self.gamma = 1.35
+        self.ca_start = None
+        self.rpm = None
         
         # Store reference conditions
         self.p_ref = None
@@ -72,7 +75,7 @@ class EngineSolver:
         V = y[1]              # Volume [m³]
         P = y[2]              # Pressure [Pa]
         m = y[3]              # Mass [kg]
-        Y = y[4:]            # Species mass fractions [-] (no need to copy)
+        Y = y[4:]            # Species mass fractions [-]
         
         # Quick bounds check before expensive operations
         if not (200 <= T <= 3500 and 1e4 <= P <= 1e8):
@@ -96,27 +99,35 @@ class EngineSolver:
         # Calculate heat transfer
         if self.params.adiabatic:
             Q_wall = 0.0
-            h_coeff = 0.0
         else:
             p_motored = self._calculate_motored_pressure(theta)
-            Q_wall, h_coeff = self.heat_transfer.heat_transfer_rate(
+            Q_wall, _ = self.heat_transfer.heat_transfer_rate(
                 theta, rpm, P, T, p_motored,
                 self.p_ref, self.T_ref, self.V_ref, T_wall
             )
         
         # Energy equation
-        cv = props['cv']  # cv is already bounded in chemistry
+        cv = props['cv']
         dTdt = 1.0/(m * cv) * (-P*dVdt + Q_chem*V - Q_wall)
         
         # Pressure equation from ideal gas law
         dPdt = P * (dTdt/T - dVdt/V)
         
-        # Combine derivatives (mass is constant)
+        # Combine derivatives
         dydt = np.zeros_like(y)
         dydt[0] = dTdt
         dydt[1] = dVdt
         dydt[2] = dPdt
         dydt[4:] = ydot
+        
+        # Update progress bar if enabled
+        if self.progress_bar is not None:
+            current_ca = self.ca_start + np.rad2deg(theta)  # Current crank angle
+            progress = current_ca - self.ca_start  # Progress from start
+            if progress > self.progress_bar.n:  # Only update if we've made progress
+                self.progress_bar.update(progress - self.progress_bar.n)
+                # Display shifted crank angle
+                self.progress_bar.set_postfix({'CA': f"{current_ca - 180:.1f}°"})
         
         return dydt
     
@@ -144,6 +155,10 @@ class EngineSolver:
         Dict
             Solution dictionary with time, states, and crank angles
         """
+        # Store crank angle range for progress bar
+        self.ca_start = ca_start
+        self.rpm = rpm
+        
         # Convert crank angles to radians
         theta_start = np.deg2rad(ca_start)
         theta_end = np.deg2rad(ca_end)
@@ -157,13 +172,17 @@ class EngineSolver:
         self.T_ref = y0[0]
         self.V_ref = y0[1]
         
-        # Create time evaluation points
-        self.t_eval = np.linspace(t_span[0], t_span[1], 1000)  # Reduced from 2000 to 1000 points
-        self.last_t = None
+        # Create time evaluation points (reduced number)
+        self.t_eval = np.linspace(t_span[0], t_span[1], 100)  # Keep 100 points for speed
         
-        # Initialize progress bar
-        print("\nSolving engine cycle:")
-        self.pbar = tqdm(total=len(self.t_eval), desc="Progress", unit="%")
+        # Initialize progress bar if requested
+        if self.params.show_progress:
+            print("\nSolving engine cycle:")
+            # Calculate total crank angle range
+            total_ca = ca_end - ca_start
+            self.progress_bar = tqdm(total=total_ca, initial=0, 
+                                   desc="Progress", unit="°CA",
+                                   bar_format='{desc}: {percentage:3.0f}%|{bar}| {n:.1f}°CA [{elapsed}<{remaining}, {rate_fmt}]')
         
         try:
             # Solve ODE system
@@ -179,11 +198,14 @@ class EngineSolver:
                 first_step=self.params.first_step
             )
         finally:
-            # Clean up
-            self.pbar.close()
-            self.pbar = None
+            # Clean up progress bar if used
+            if self.progress_bar is not None:
+                self.progress_bar.close()
+                self.progress_bar = None
             self.t_eval = None
             self.last_t = None
+            self.ca_start = None
+            self.rpm = None
         
         # Calculate crank angles
         crank_angles = ca_start + np.rad2deg(omega * solution.t)
