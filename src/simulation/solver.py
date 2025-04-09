@@ -14,10 +14,10 @@ from ..models.chemistry import Chemistry
 class SolverParams:
     """Solver parameters."""
     method: str = "LSODA"     # Integration method
-    rtol: float = 1.0e-4      # Relative tolerance (relaxed)
-    atol: float = 1.0e-6      # Absolute tolerance (relaxed)
-    max_step: float = 2.0e-3  # Maximum step size
-    first_step: float = 1.0e-5  # First step size
+    rtol: float = 1.0e-4      # Relative tolerance
+    atol: float = 1.0e-6      # Absolute tolerance
+    max_step: float = 1.0e-3  # Maximum step size
+    first_step: float = 1.0e-6  # First step size
     adiabatic: bool = False   # Whether to run in adiabatic mode
     min_temp: float = 200.0   # Minimum allowed temperature [K]
     max_temp: float = 3500.0  # Maximum allowed temperature [K]
@@ -27,6 +27,28 @@ class SolverParams:
     mass_fraction_threshold: float = 1e-12  # Threshold below which to set to zero
     max_rate_limit: float = 1000.0  # Maximum allowed fractional change in mass fraction per step
     show_progress: bool = True  # Whether to show progress bar
+
+    @classmethod
+    def from_yaml(cls, config: Dict) -> 'SolverParams':
+        """Create SolverParams from YAML config."""
+        solver_config = config['solver']
+        return cls(
+            method=solver_config['method'],
+            rtol=solver_config['rtol'],
+            atol=solver_config['atol'],
+            max_step=solver_config['max_step'],
+            first_step=solver_config['first_step'],
+            adiabatic=solver_config['adiabatic'],
+            # Keep defaults for other parameters
+            min_temp=200.0,
+            max_temp=3500.0,
+            min_press=1e4,
+            max_press=1e8,
+            min_mass_fraction=-1e-10,
+            mass_fraction_threshold=1e-12,
+            max_rate_limit=1000.0,
+            show_progress=True
+        )
 
 class EngineSolver:
     """Engine cycle ODE solver."""
